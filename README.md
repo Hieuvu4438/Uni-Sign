@@ -60,6 +60,9 @@ unzip BLEURT-20.zip
 ## 📖 Preparation
 Please follow the instructions provided in [DATASET.md](./docs/DATASET.md) for data preparation.
 
+## 💻 Model Checkpoints
+The Uni-Sign checkpoints are available for download [Here](https://huggingface.co/ZechengLi19/Uni-Sign/tree/main).
+
 ## 🔨 Training & Evaluation
 All scripts must be executed within the Uni-Sign directory. 
 
@@ -83,6 +86,9 @@ After completing stage 3 fine-tuning, performance evaluation on a single GPU can
 ```bash
 bash ./script/eval_stage3.sh
 ```
+
+## 🎨 Inference Results
+If you'd like to skip the environment setup and model weight configuration, you can find sample pose-only sign language translation results (stage 2) [Here](./out) for quick comparison.
 
 ## 👨‍💻 Todo
 - [x] Release CSL-News dataset
