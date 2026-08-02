@@ -1,5 +1,9 @@
 *.swp
 __pycache__/**
+__pycache__/
+# Downloaded checkpoints and locally supplied datasets
+pretrained_weight/
+data/CoSign/
 out/
 core*
 *.ipynb
