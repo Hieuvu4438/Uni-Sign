@@ -1,0 +1,154 @@
+{
+  "labels": [
+    {
+      "id": 0,
+      "text": "Ban ngày",
+      "slug": "ban-ngay"
+    },
+    {
+      "id": 1,
+      "text": "Ban đêm",
+      "slug": "ban-em"
+    },
+    {
+      "id": 2,
+      "text": "Bàn tay",
+      "slug": "ban-tay"
+    },
+    {
+      "id": 3,
+      "text": "Bạn thân",
+      "slug": "ban-than"
+    },
+    {
+      "id": 4,
+      "text": "Bệnh viện",
+      "slug": "benh-vien"
+    },
+    {
+      "id": 5,
+      "text": "Chiều",
+      "slug": "chieu"
+    },
+    {
+      "id": 6,
+      "text": "Chào",
+      "slug": "chao"
+    },
+    {
+      "id": 7,
+      "text": "Chân",
+      "slug": "chan"
+    },
+    {
+      "id": 8,
+      "text": "Chúng ta",
+      "slug": "chung-ta"
+    },
+    {
+      "id": 9,
+      "text": "Chậm lại",
+      "slug": "cham-lai"
+    },
+    {
+      "id": 10,
+      "text": "Con gấu",
+      "slug": "con-gau"
+    },
+    {
+      "id": 11,
+      "text": "Cá",
+      "slug": "ca"
+    },
+    {
+      "id": 12,
+      "text": "Có thể",
+      "slug": "co-the"
+    },
+    {
+      "id": 13,
+      "text": "Cơ thể",
+      "slug": "co-the-2"
+    },
+    {
+      "id": 14,
+      "text": "Cứu",
+      "slug": "cuu"
+    },
+    {
+      "id": 15,
+      "text": "Dễ",
+      "slug": "de"
+    },
+    {
+      "id": 16,
+      "text": "Hôm nay",
+      "slug": "hom-nay"
+    },
+    {
+      "id": 17,
+      "text": "Họ",
+      "slug": "ho"
+    },
+    {
+      "id": 18,
+      "text": "Học sinh",
+      "slug": "hoc-sinh"
+    },
+    {
+      "id": 19,
+      "text": "Khóc",
+      "slug": "khoc"
+    },
+    {
+      "id": 20,
+      "text": "Mua",
+      "slug": "mua"
+    },
+    {
+      "id": 21,
+      "text": "Mời vào",
+      "slug": "moi-vao"
+    },
+    {
+      "id": 22,
+      "text": "Nghe",
+      "slug": "nghe"
+    },
+    {
+      "id": 23,
+      "text": "Ngón tay",
+      "slug": "ngon-tay"
+    },
+    {
+      "id": 24,
+      "text": "Nhà",
+      "slug": "nha"
+    },
+    {
+      "id": 25,
+      "text": "Nhìn",
+      "slug": "nhin"
+    },
+    {
+      "id": 26,
+      "text": "Nhầm",
+      "slug": "nham"
+    },
+    {
+      "id": 27,
+      "text": "Nói",
+      "slug": "noi"
+    },
+    {
+      "id": 28,
+      "text": "Nặng",
+      "slug": "nang"
+    },
+    {
+      "id": 29,
+      "text": "Ăn",
+      "slug": "an"
+    }
+  ]
+}

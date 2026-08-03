@@ -1,6 +1,16 @@
 import argparse
 import os
+
+# Strictly cap CPU threading to prevent high CPU load
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
 import cv2
+cv2.setNumThreads(1)
+
 import glob
 import pickle
 import numpy as np
@@ -65,7 +75,7 @@ def main():
     parser.add_argument("--video_extensions", nargs='+', default=["mp4", "avi"])
     parser.add_argument("--recursive", action="store_true",
                         help="Recursively discover videos and preserve their relative directories in tgt_dir.")
-    parser.add_argument("--max_workers", type=int, default=4)
+    parser.add_argument("--max_workers", type=int, default=1)
     parser.add_argument("--overwrite", action="store_true")
 
     args = parser.parse_args()

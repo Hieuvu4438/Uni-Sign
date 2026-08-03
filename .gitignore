@@ -1,22 +1,29 @@
 *.swp
 __pycache__/**
 __pycache__/
-# Downloaded checkpoints and locally supplied datasets
+
+# Downloaded checkpoints and training outputs
 pretrained_weight/
-data/CoSign/
 out/
 core*
 *.ipynb
-# *.sh
 *.bin
 wandb
 backup
 *.pth
-#*.txt
 log/
-*.json
-*.xlsx
-*.mp4
 tools/*.jpg
 tools/*.mp4
 pre_training.py
+
+# Raw dataset video files, zip archives, and extracted pose binary files
+data/CoSign/*.zip
+data/CoSign/pose_format/
+data/CoSign/*/*.mp4
+data/CoSign/*/*.avi
+data/CoSign/*/*.mov
+data/CoSign/*/*.mkv
+data/CoSign/*/*.webm
+data/CoSign/*/*.MOV
+data/CoSign/*/*.MP4
+data/CoSign/*/*.AVI
