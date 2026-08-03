@@ -430,6 +430,13 @@ class S2T_Dataset(Base_Dataset):
             self.pose_dir = pose_dirs[args.dataset].format(phase)
             self.rgb_dir = os.path.join(rgb_dirs[args.dataset], phase)
 
+        elif self.args.dataset == "CoSign":
+            # CoSign annotations carry explicit, manifest-stable video/pose
+            # paths.  Do not derive a .pkl path from a media filename: the
+            # source data contain both MP4 and AVI videos.
+            self.pose_dir = pose_dirs[args.dataset]
+            self.rgb_dir = rgb_dirs[args.dataset]
+
         else:
             raise NotImplementedError
 
@@ -454,12 +461,53 @@ class S2T_Dataset(Base_Dataset):
             gloss = ''
         
         name_sample = sample['name']
-        pose_sample, support_rgb_dict = self.load_pose(sample['video_path'])
+        pose_sample, support_rgb_dict = self.load_pose(
+            sample['video_path'], sample.get('pose_path'))
 
         return name_sample,pose_sample,text, gloss, support_rgb_dict
-    
-    def load_pose(self, path):
-        pose = pickle.load(open(os.path.join(self.pose_dir, path.replace(".mp4", '.pkl')), 'rb'))
+
+    def _resolve_path(self, root, path):
+        path = pathlib.Path(path)
+        return path if path.is_absolute() else pathlib.Path(root) / path
+
+    def _sample_frame_indices(self, duration, start=0):
+        if duration <= 0:
+            raise ValueError("Pose sample has no frames")
+        if duration <= self.max_length:
+            return np.arange(start, start + duration)
+        if self.phase == 'train':
+            indices = sorted(random.sample(range(duration), k=self.max_length))
+            return np.asarray(indices) + start
+        # Evaluation must be reproducible.  Uniform sampling preserves motion
+        # coverage while avoiding random dev/test predictions.
+        return np.linspace(start, start + duration - 1, num=self.max_length, dtype=np.int64)
+
+    def _validate_pose(self, pose, pose_path):
+        required = {'keypoints', 'scores'}
+        missing = required.difference(pose.keys())
+        if missing:
+            raise ValueError(f"Pose file {pose_path} is missing keys: {sorted(missing)}")
+        if len(pose['keypoints']) != len(pose['scores']) or len(pose['keypoints']) == 0:
+            raise ValueError(f"Pose file {pose_path} has invalid frame counts")
+        keypoints = np.asarray(pose['keypoints'][0])
+        scores = np.asarray(pose['scores'][0])
+        if keypoints.shape != (1, 133, 2) or scores.shape != (1, 133):
+            raise ValueError(
+                f"Pose file {pose_path} must use RTMPose whole-body shapes "
+                f"(1, 133, 2)/(1, 133), got {keypoints.shape}/{scores.shape}")
+        if not np.isfinite(keypoints).all() or not np.isfinite(scores).all():
+            raise ValueError(f"Pose file {pose_path} contains NaN or Inf values")
+
+    def load_pose(self, path, pose_path=None):
+        if pose_path:
+            full_pose_path = self._resolve_path(self.rgb_dir, pose_path)
+        else:
+            video_path = pathlib.Path(path)
+            full_pose_path = self._resolve_path(
+                self.pose_dir, str(video_path.with_suffix('.pkl')))
+        with open(full_pose_path, 'rb') as f:
+            pose = pickle.load(f)
+        self._validate_pose(pose, full_pose_path)
             
         if 'start' in pose.keys():
             assert pose['start'] < pose['end']
@@ -469,12 +517,7 @@ class S2T_Dataset(Base_Dataset):
             duration = len(pose['scores'])
             start = 0
                 
-        if duration > self.max_length:
-            tmp = sorted(random.sample(range(duration), k=self.max_length))
-        else:
-            tmp = list(range(duration))
-        
-        tmp = np.array(tmp) + start
+        tmp = self._sample_frame_indices(duration, start)
             
         skeletons = pose['keypoints']
         confs = pose['scores']
@@ -491,7 +534,7 @@ class S2T_Dataset(Base_Dataset):
 
         support_rgb_dict = {}
         if self.rgb_support:
-            full_path = os.path.join(self.rgb_dir, path)
+            full_path = str(self._resolve_path(self.rgb_dir, path))
             support_rgb_dict = load_support_rgb_dict(tmp, skeletons, confs, full_path, self.data_transform)
             
         return kps_with_scores, support_rgb_dict

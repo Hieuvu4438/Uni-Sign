@@ -101,10 +101,10 @@ class Uni_Sign(nn.Module):
         
         self.apply(self._init_weights)
         
-        if "CSL" in self.args.dataset:
-            self.lang = 'Chinese'
-        else:
-            self.lang = 'English'
+        default_language = 'Chinese' if "CSL" in self.args.dataset else 'English'
+        if self.args.dataset == 'CoSign':
+            default_language = 'Vietnamese'
+        self.lang = getattr(self.args, 'language', '') or default_language
         
         if self.args.rgb_support:
             self.rgb_support_backbone = torch.nn.Sequential(*list(torchvision.models.efficientnet_b0(pretrained=True).children())[:-2])
@@ -322,7 +322,74 @@ class Uni_Sign(nn.Module):
 
         return out
 
+    @torch.no_grad()
+    def score_candidate_labels(self, pre_compute_item, candidate_labels):
+        """Return length-normalized log-likelihoods for closed-set ISLR.
+
+        ``candidate_labels`` must already contain the canonical training label
+        strings.  This keeps Uni-Sign's pretrained generative interface while
+        ensuring an ISLR prediction belongs to the deployed vocabulary.
+        """
+        if not candidate_labels:
+            raise ValueError("candidate_labels must not be empty")
+
+        inputs_embeds = pre_compute_item['inputs_embeds']
+        attention_mask = pre_compute_item['attention_mask']
+        batch_size = inputs_embeds.shape[0]
+        num_labels = len(candidate_labels)
+
+        target = self.mt5_tokenizer(
+            candidate_labels,
+            return_tensors='pt',
+            padding=True,
+            truncation=True,
+            max_length=50,
+        ).input_ids.to(inputs_embeds.device)
+        target[target == self.mt5_tokenizer.pad_token_id] = -100
+
+        repeated_embeds = inputs_embeds.repeat_interleave(num_labels, dim=0)
+        repeated_mask = attention_mask.repeat_interleave(num_labels, dim=0)
+        repeated_labels = target.repeat(batch_size, 1)
+
+        out = self.mt5_model(
+            inputs_embeds=repeated_embeds,
+            attention_mask=repeated_mask,
+            labels=repeated_labels,
+            return_dict=True,
+            use_cache=False,
+        )
+        token_log_probs = torch.log_softmax(out.logits.float(), dim=-1)
+        valid = repeated_labels.ne(-100)
+        safe_labels = repeated_labels.masked_fill(~valid, 0)
+        selected = token_log_probs.gather(-1, safe_labels.unsqueeze(-1)).squeeze(-1)
+        sequence_scores = (selected * valid).sum(dim=1) / valid.sum(dim=1).clamp_min(1)
+        return sequence_scores.view(batch_size, num_labels)
+
+    def configure_mt5_trainability(self, freeze_mt5=False, unfreeze_last_n=0):
+        """Freeze mT5 while retaining optional final encoder/decoder blocks."""
+        if unfreeze_last_n < 0:
+            raise ValueError("unfreeze_mt5_last_n must be non-negative")
+        if not freeze_mt5:
+            return
+        for parameter in self.mt5_model.parameters():
+            parameter.requires_grad = False
+        if unfreeze_last_n == 0:
+            return
+
+        for stack in (self.mt5_model.encoder.block, self.mt5_model.decoder.block):
+            for block in list(stack)[-unfreeze_last_n:]:
+                for parameter in block.parameters():
+                    parameter.requires_grad = True
+        for module in (self.mt5_model.encoder.final_layer_norm,
+                       self.mt5_model.decoder.final_layer_norm,
+                       self.mt5_model.lm_head):
+            for parameter in module.parameters():
+                parameter.requires_grad = True
+
 def get_requires_grad_dict(model):
+    # Checkpoints must remain strictly reloadable even when a curriculum froze
+    # part of mT5.  Saving only trainable parameters would make a frozen-stage
+    # best checkpoint unusable with fine_tuning.py's strict loader.
     param_requires_grad = {name: True for name, param in model.named_parameters()}
     param_requires_grad_right = {}
     for key in param_requires_grad.keys():
@@ -333,4 +400,3 @@ def get_requires_grad_dict(model):
     params_to_update = {k: v for k, v in model.state_dict().items() if param_requires_grad.get(k, True)}
 
     return params_to_update
-

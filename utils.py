@@ -23,6 +23,9 @@ import torch.nn.functional as F
 
 import pickle
 import gzip
+import json
+import re
+import unicodedata
 
 
 # global definition
@@ -317,6 +320,33 @@ def load_dataset_file(filename):
         loaded_object = pickle.load(f)
         return loaded_object
 
+def normalize_label(text):
+    """Normalize an isolated-sign label before exact-match evaluation."""
+    text = unicodedata.normalize("NFC", str(text))
+    return re.sub(r"\s+", " ", text.strip())
+
+def load_label_vocabulary(path):
+    """Read canonical labels from the JSON written by prepare_cosign.py.
+
+    Supported formats are a JSON list of strings, a ``{"labels": [...]}``
+    object, or a labels list containing objects with a ``text`` field.
+    """
+    if not path:
+        return []
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    labels = data.get("labels", data) if isinstance(data, dict) else data
+    result = []
+    for item in labels:
+        text = item["text"] if isinstance(item, dict) else item
+        text = normalize_label(text)
+        if not text:
+            raise ValueError(f"Empty label in vocabulary: {path}")
+        result.append(text)
+    if len(result) != len(set(result)):
+        raise ValueError(f"Duplicate canonical labels in vocabulary: {path}")
+    return result
+
 def yield_tokens(file_path):
     with io.open(file_path, encoding = 'utf-8') as f:
         for line in f:
@@ -523,13 +553,33 @@ def get_args_parser():
     parser.add_argument("--max_length", default=256, type=int)
     
     # select dataset
-    parser.add_argument("--dataset", default="CSL_Daily", choices=['CSL_News', "CSL_Daily", "WLASL", "How2Sign", "OpenASL"])
+    parser.add_argument("--dataset", default="CSL_Daily", choices=['CSL_News', "CSL_Daily", "WLASL", "How2Sign", "OpenASL", "CoSign"])
     
     # select task
     parser.add_argument("--task", default="SLT", choices=['SLT', "ISLR", "CSLR"])
     
     # select label smooth
     parser.add_argument("--label_smoothing", default=0.2, type=float)
+
+    # CoSign / closed-vocabulary ISLR options
+    parser.add_argument("--language", default="", type=str,
+                        help="Target language in Uni-Sign's text prompt. CoSign defaults to Vietnamese.")
+    parser.add_argument("--label-vocab", default="", type=str,
+                        help="JSON file containing canonical isolated-sign labels.")
+    parser.add_argument("--closed-vocabulary", action="store_true",
+                        help="Score only labels in --label-vocab during ISLR evaluation.")
+    parser.add_argument("--max-new-tokens", default=0, type=int,
+                        help="Generation limit; 0 derives a compact value from --label-vocab for ISLR.")
+    parser.add_argument("--freeze-mt5", action="store_true",
+                        help="Freeze mT5 before optimizer creation.")
+    parser.add_argument("--unfreeze-mt5-last-n", default=0, type=int,
+                        help="When --freeze-mt5 is set, leave the last N encoder/decoder blocks trainable.")
+    parser.add_argument("--mt5-lr", default=0.0, type=float,
+                        help="Optional mT5 learning rate. 0 uses --lr for every trainable parameter.")
+    parser.add_argument("--selection-metric", default="auto", type=str,
+                        help="Checkpoint metric; auto uses per-class ISLR accuracy for CoSign.")
+    parser.add_argument("--eval-test-each-epoch", action="store_true",
+                        help="Also evaluate test every epoch. Keep disabled for unbiased model selection.")
 
     # online inference
     parser.add_argument("--online_video", default="", type=str)
