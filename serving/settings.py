@@ -21,6 +21,15 @@ def _env_float(name: str, default: float, minimum: float | None = None) -> float
     return value
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name, str(default)).strip().lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean")
+
+
 @dataclass(frozen=True)
 class ServiceSettings:
     """Settings intentionally limited to deployment-relevant runtime values."""
@@ -38,6 +47,7 @@ class ServiceSettings:
     top_k_default: int = 5
     temp_dir: Path = Path("/tmp/unisign")
     service_api_key: str = ""
+    demo_mode: bool = False
     min_person_coverage: float = 0.70
     min_mean_hand_score: float = 0.20
     min_relative_score: float | None = None
@@ -69,6 +79,7 @@ class ServiceSettings:
             top_k_default=_env_int("TOP_K_DEFAULT", 5, 1),
             temp_dir=Path(os.getenv("TEMP_DIR", "/tmp/unisign")).resolve(),
             service_api_key=os.getenv("SERVICE_API_KEY", ""),
+            demo_mode=_env_bool("DEMO_MODE", False),
             min_person_coverage=_env_float("MIN_PERSON_COVERAGE", 0.70, 0.0),
             min_mean_hand_score=_env_float("MIN_MEAN_HAND_SCORE", 0.20, 0.0),
             min_relative_score=float(raw_relative_score) if raw_relative_score else None,

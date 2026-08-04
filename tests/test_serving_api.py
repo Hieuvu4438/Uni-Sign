@@ -84,6 +84,18 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(ready.json()["model"]["label_count"], 30)
             self.assertEqual(len(client.get("/v1/labels").json()["labels"]), 30)
 
+    def test_swagger_docs_publish_authorize_scheme_and_multipart_contract(self):
+        client, _ = self.make_client(service_api_key="secret")
+        with client:
+            docs = client.get("/docs")
+            self.assertEqual(docs.status_code, 200)
+            self.assertIn("Swagger UI", docs.text)
+            schema = client.get("/openapi.json").json()
+        operation = schema["paths"]["/v1/predictions"]["post"]
+        self.assertEqual(operation["security"], [{"ServiceBearer": []}])
+        self.assertEqual(schema["components"]["securitySchemes"]["ServiceBearer"]["scheme"], "bearer")
+        self.assertIn("multipart/form-data", operation["requestBody"]["content"])
+
     def test_prediction_upload_has_stable_response_and_cleans_temp_file(self):
         client, service = self.make_client()
         with client:
@@ -136,6 +148,41 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(denied.status_code, 401)
             allowed = client.get("/v1/model", headers={"Authorization": "Bearer secret"})
             self.assertEqual(allowed.status_code, 200)
+
+    def test_demo_mode_makes_swagger_prediction_contract_testable_without_gpu_bundle(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        settings = ServiceSettings(
+            temp_dir=Path(self.temporary.name),
+            service_api_key="swagger-dev-key",
+            demo_mode=True,
+        )
+        with TestClient(create_app(settings)) as client:
+            headers = {"Authorization": "Bearer swagger-dev-key"}
+            model = client.get("/v1/model", headers=headers)
+            self.assertEqual(model.status_code, 200)
+            self.assertTrue(model.json()["is_demo"])
+            response = client.post(
+                "/v1/predictions",
+                headers=headers,
+                files={"video": ("swagger-upload.webm", b"demo-video", "video/webm")},
+                data={"top_k": "string", "client_capture_id": "string", "client_duration_ms": "null"},
+            )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["demo"])
+        self.assertTrue(payload["model"]["is_demo"])
+        self.assertEqual(payload["input"]["validation"], "skipped_in_demo_mode")
+
+    def test_malformed_multipart_boundary_returns_stable_problem_body(self):
+        client, _ = self.make_client()
+        with client:
+            response = client.post(
+                "/v1/predictions",
+                content=b"--not-a-real-boundary\r\n",
+                headers={"content-type": "multipart/form-data"},
+            )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "INVALID_MULTIPART")
 
     def test_not_ready_service_keeps_liveness_but_returns_503_readiness(self):
         settings = ServiceSettings(model_bundle_dir=None, temp_dir=Path(tempfile.gettempdir()))

@@ -11,6 +11,30 @@ This is the implementation guide for the deployment design in [the service strat
 
 The service loads its model, mT5 assets, and RTMPose models once at startup. It never accesses a user's webcam directly: the browser captures a clip and the application backend sends it to `POST /v1/predictions` over a private network.
 
+## Swagger UI and frontend contract testing
+
+OpenAPI and Swagger UI are available at `/openapi.json` and `/docs`. Protected endpoints use the **ServiceBearer** scheme. In Swagger's **Authorize** dialog, paste the API key itself (for example `swagger-dev-key`); Swagger UI adds `Bearer ` automatically.
+
+The real service correctly returns `503 MODEL_NOT_READY` until a verified GPU model release is mounted. For frontend work before those artefacts are available, use the explicit demo mode:
+
+```bash
+cd /home/haipd/Uni-Sign
+SERVICE_API_KEY=swagger-dev-key \
+  docker compose -f docker/docker-compose.swagger.yml up --build
+```
+
+Open `http://127.0.0.1:56568/docs`, click **Authorize**, enter `swagger-dev-key`, then select any non-empty file for `POST /v1/predictions`. Demo responses contain both `demo: true` and `model.is_demo: true`; they skip video, pose, and model validation and must never be treated as recognition results. Their purpose is frontend testing of upload handling, authorization, response parsing, and errors.
+
+For a local Python-only Swagger session:
+
+```bash
+cd /home/haipd/Uni-Sign
+DEMO_MODE=true SERVICE_API_KEY=swagger-dev-key \
+  uvicorn serving.api:app --host 127.0.0.1 --port 8080
+```
+
+The Swagger demo compose file does not require a GPU, model bundle, mT5 assets, or RTMPose ONNX files.
+
 ## 1. Prepare an immutable model release
 
 Do not copy model data into Git or the Docker build context. On the deployment server, create one release directory with this exact layout:
@@ -60,16 +84,16 @@ docker compose --env-file docker/.env -f docker/docker-compose.yml build
 docker compose --env-file docker/.env -f docker/docker-compose.yml up -d
 ```
 
-The Compose file deliberately binds the service only to `127.0.0.1:8080`, mounts `/models` read-only, uses a tmpfs for transient uploads, requires a service API key, and starts one ASGI worker. Put the application backend on the same private Docker network/host or expose the API through a private TLS/mTLS gateway; do not publish port 8080 directly to the internet.
+The Compose file deliberately binds the service only to `127.0.0.1:56568`, mounts `/models` read-only, uses a tmpfs for transient uploads, requires a service API key, and starts one ASGI worker. Put the application backend on the same private Docker network/host or expose the API through a private TLS/mTLS gateway; do not publish the service port directly to the internet.
 
 Before sending traffic, verify liveness and readiness from the server:
 
 ```bash
-curl --fail-with-body http://127.0.0.1:8080/livez
-curl --fail-with-body http://127.0.0.1:8080/readyz
+curl --fail-with-body http://127.0.0.1:56568/livez
+curl --fail-with-body http://127.0.0.1:56568/readyz
 curl --fail-with-body \
   -H "Authorization: Bearer $SERVICE_API_KEY" \
-  http://127.0.0.1:8080/v1/model
+  http://127.0.0.1:56568/v1/model
 ```
 
 `/livez` means the HTTP process exists. `/readyz` returns `503` until the manifest hashes, model checkpoint, local mT5 assets, RTMPose assets, CUDA runtime, and model initialisation have succeeded. Route traffic only after readiness returns `200`.
@@ -85,7 +109,7 @@ curl --fail-with-body \
   -F "video=@capture.webm;type=video/webm" \
   -F "top_k=5" \
   -F "client_capture_id=web-7a4e" \
-  http://127.0.0.1:8080/v1/predictions
+  http://127.0.0.1:56568/v1/predictions
 ```
 
 The backend must keep the returned `X-Request-ID`, map stable error codes to user-facing Vietnamese copy, and avoid retry loops on `422` input errors. The API has these routes:
@@ -115,10 +139,11 @@ For a successful result, `prediction.relative_score` is a softmax over only the 
 | `MAX_PIXELS` | `2073600` | Maximum source image pixels (1920×1080 by default). |
 | `MAX_QUEUE_DEPTH` | `1` | One in-flight GPU request initially; tune only after load testing. |
 | `SERVICE_API_KEY` | required by Compose | Private backend-to-service credential. Use a secret manager in production. |
+| `DEMO_MODE` | `false` | Enables deterministic Swagger/frontend contract responses without loading model artefacts. Never enable in production. |
 | `MIN_PERSON_COVERAGE` / `MIN_MEAN_HAND_SCORE` | `0.70` / `0.20` | Pose quality gates. Validate and version final values on deployment-like data. |
 | `MIN_RELATIVE_SCORE` / `MIN_SCORE_MARGIN` | disabled | Do not enable until calibrated on a labelled validation set. |
 
-The service refuses client paths, remote URLs, and pickles. It spools clips to a restricted temp file, probes/decode them using FFmpeg, deletes the temporary file in all normal/error paths, and returns stable errors such as `FILE_TOO_LARGE`, `VIDEO_TOO_LONG`, `NO_PERSON_DETECTED`, `GPU_QUEUE_FULL`, and `MODEL_NOT_READY`.
+The service refuses client paths, remote URLs, and pickles. It spools clips to a restricted temp file, probes/decode them using FFmpeg, deletes the temporary file in all normal/error paths, and returns stable errors such as `FILE_TOO_LARGE`, `VIDEO_TOO_LONG`, `NO_PERSON_DETECTED`, `GPU_QUEUE_FULL`, and `MODEL_NOT_READY`. A malformed multipart request now consistently returns `INVALID_MULTIPART`; clients must let their HTTP library set the multipart boundary rather than manually composing the `Content-Type` header.
 
 ## 5. Mandatory release checks
 

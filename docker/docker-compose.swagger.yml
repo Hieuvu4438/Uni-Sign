@@ -1,0 +1,21 @@
+# Frontend/Swagger contract environment. It never loads model weights, CUDA, or
+# RTMPose assets. Do not deploy it as the production recognition service.
+services:
+  unisign-swagger-demo:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: cosign-ai-text2sign_unisign:swagger-demo
+    environment:
+      DEMO_MODE: "true"
+      SERVICE_API_KEY: ${SERVICE_API_KEY:?Set SERVICE_API_KEY for Swagger Authorize}
+      MAX_UPLOAD_BYTES: "20971520"
+      MAX_QUEUE_DEPTH: "4"
+      TOP_K_DEFAULT: "5"
+    tmpfs:
+      - /tmp/unisign:rw,noexec,nosuid,size=256m,mode=1777
+    ports:
+      - "127.0.0.1:56568:8080"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true

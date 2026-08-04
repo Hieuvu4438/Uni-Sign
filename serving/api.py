@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import hmac
+import logging
 from pathlib import Path
 import tempfile
 import threading
@@ -15,14 +16,21 @@ from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
-from fastapi.security import HTTPBearer
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
-security_bearer = HTTPBearer(auto_error=False)
-
+from serving.demo import DemoInferenceService
 from serving.errors import ModelUnavailableError, QueueFullError, ServiceError
 from serving.service import InferenceService
 from serving.settings import ServiceSettings
 from serving.telemetry import Metrics
+
+security_bearer = HTTPBearer(
+    auto_error=False,
+    scheme_name="ServiceBearer",
+    description="Enter the service API key only; Swagger UI sends the Bearer prefix.",
+)
+logger = logging.getLogger(__name__)
 
 
 class UnavailableInferenceService:
@@ -69,12 +77,18 @@ def _request_id(request: Request) -> str:
     return str(uuid4())
 
 
-def _require_service_auth(request: Request, settings: ServiceSettings) -> None:
+async def _require_service_auth(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(security_bearer),
+) -> None:
+    settings: ServiceSettings = request.app.state.settings
     if not settings.service_api_key:
         return
-    authorization = request.headers.get("Authorization", "")
-    expected = f"Bearer {settings.service_api_key}"
-    if not hmac.compare_digest(authorization, expected):
+    if (
+        credentials is None
+        or credentials.scheme.lower() != "bearer"
+        or not hmac.compare_digest(credentials.credentials, settings.service_api_key)
+    ):
         raise ServiceError("UNAUTHORIZED", "Invalid service credential", 401)
 
 
@@ -132,10 +146,15 @@ def create_app(
         if service is None:
             try:
                 settings.validate()
-                app.state.service = await run_in_threadpool(InferenceService.load, settings)
+                if settings.demo_mode:
+                    logger.warning("DEMO_MODE is enabled: no model inference will run")
+                    app.state.service = DemoInferenceService()
+                else:
+                    app.state.service = await run_in_threadpool(InferenceService.load, settings)
             except ServiceError as error:
                 app.state.service = UnavailableInferenceService(error)
             except Exception:
+                logger.exception("Model service startup failed")
                 app.state.service = UnavailableInferenceService(
                     ModelUnavailableError("Model startup failed; inspect server logs")
                 )
@@ -155,7 +174,7 @@ def create_app(
 
     @app.exception_handler(ServiceError)
     async def service_error_handler(request: Request, error: ServiceError):
-        print(f"[DEBUG ServiceError] status={error.status_code} code={error.code} msg={error.message}", flush=True)
+        logger.info("Service request failed: status=%s code=%s", error.status_code, error.code)
         request_id = getattr(request.state, "request_id", _request_id(request))
         metrics.observe_request(request.url.path, error.status_code, error.code)
         response = _problem(error, request_id)
@@ -166,7 +185,6 @@ def create_app(
 
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(request: Request, _error: RequestValidationError):
-        print(f"[DEBUG RequestValidationError] {_error.errors()}", flush=True)
         error = ServiceError("INVALID_MULTIPART", "Request fields are invalid or missing", 400)
         request_id = getattr(request.state, "request_id", _request_id(request))
         metrics.observe_request(request.url.path, error.status_code, error.code)
@@ -174,28 +192,15 @@ def create_app(
         response.headers["X-Request-ID"] = request_id
         return response
 
-    @app.middleware("http")
-    async def fix_multipart_boundary_middleware(request: Request, call_next):
-        content_type = request.headers.get("content-type", "")
-        if content_type and "multipart/form-data" in content_type.lower() and "boundary=" not in content_type.lower():
-            body = await request.body()
-            if body.startswith(b"--"):
-                first_line = body.split(b"\r\n", 1)[0]
-                boundary = first_line[2:].decode("latin-1", errors="ignore").strip()
-                if boundary:
-                    new_headers = []
-                    for k, v in request.scope["headers"]:
-                        if k.lower() == b"content-type":
-                            new_headers.append((b"content-type", f"multipart/form-data; boundary={boundary}".encode("latin-1")))
-                        else:
-                            new_headers.append((k, v))
-                    request.scope["headers"] = new_headers
-
-                    async def receive():
-                        return {"type": "http.request", "body": body}
-
-                    request._receive = receive
-        return await call_next(request)
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_handler(request: Request, error: StarletteHTTPException):
+        detail = str(error.detail)
+        if error.status_code == 400 and ("multipart" in detail.lower() or "boundary" in detail.lower()):
+            return await service_error_handler(
+                request,
+                ServiceError("INVALID_MULTIPART", "Multipart video upload is malformed", 400),
+            )
+        return JSONResponse(status_code=error.status_code, content={"detail": error.detail})
 
     @app.middleware("http")
     async def request_id_middleware(request: Request, call_next):
@@ -215,23 +220,21 @@ def create_app(
             raise ModelUnavailableError("Model bundle or runtime is not ready")
         return {"status": "ready", "model": active_service.model_metadata()}
 
-    @app.get("/v1/model", dependencies=[Depends(security_bearer)])
+    @app.get("/v1/model", dependencies=[Depends(_require_service_auth)])
     async def model_metadata(request: Request):
-        _require_service_auth(request, settings)
         active_service = request.app.state.service
         if not active_service.ready:
             raise ModelUnavailableError()
         return active_service.model_metadata()
 
-    @app.get("/v1/labels", dependencies=[Depends(security_bearer)])
+    @app.get("/v1/labels", dependencies=[Depends(_require_service_auth)])
     async def labels(request: Request):
-        _require_service_auth(request, settings)
         active_service = request.app.state.service
         if not active_service.ready:
             raise ModelUnavailableError()
         return {"labels": active_service.labels(), "model": active_service.model_metadata()}
 
-    @app.post("/v1/predictions", dependencies=[Depends(security_bearer)])
+    @app.post("/v1/predictions", dependencies=[Depends(_require_service_auth)])
     async def predict(
         request: Request,
         video: UploadFile = File(...),
@@ -240,7 +243,6 @@ def create_app(
         client_duration_ms: str | int | None = Form(None),
     ):
         del client_duration_ms  # Server-decoded duration is authoritative.
-        _require_service_auth(request, settings)
         if client_capture_id is not None:
             capture_id = str(client_capture_id).strip()
             if not capture_id or capture_id.lower() == "string":
@@ -253,7 +255,9 @@ def create_app(
         parsed_top_k: int | None = None
         if top_k is not None:
             top_k_str = str(top_k).strip()
-            if top_k_str != "":
+            # Swagger UI may submit its optional form placeholder literally as
+            # "string" or "null" when a developer does not edit the field.
+            if top_k_str.lower() not in {"", "string", "null", "none"}:
                 try:
                     parsed_top_k = int(top_k_str)
                 except ValueError:
@@ -292,9 +296,8 @@ def create_app(
                 in_flight -= 1
                 metrics.set_queue_depth(in_flight)
 
-    @app.get("/metrics", dependencies=[Depends(security_bearer)])
+    @app.get("/metrics", dependencies=[Depends(_require_service_auth)])
     async def metrics_endpoint(request: Request):
-        _require_service_auth(request, settings)
         body, content_type = metrics.render()
         return Response(content=body, media_type=content_type)
 

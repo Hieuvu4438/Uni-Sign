@@ -5,7 +5,9 @@ services:
       dockerfile: docker/Dockerfile
     image: cosign-ai-text2sign_unisign:latest
     restart: unless-stopped
-    mem_limit: 6g
+    # Model loading temporarily holds CPU and GPU copies of the 587M-parameter
+    # checkpoint. Six GiB is too small for reliable production startup.
+    mem_limit: 16g
     gpus: all
     environment:
       MODEL_BUNDLE_DIR: /models/cosign-vi-islr/2026-08-04-r1
@@ -20,6 +22,7 @@ services:
       MAX_QUEUE_DEPTH: "1"
       TOP_K_DEFAULT: "5"
       SERVICE_API_KEY: ${SERVICE_API_KEY:?Set SERVICE_API_KEY in the deployment environment}
+      DEMO_MODE: "false"
     volumes:
       - ${MODEL_RELEASES_DIR:?Set MODEL_RELEASES_DIR to the parent model directory}:/models:ro
     tmpfs:
