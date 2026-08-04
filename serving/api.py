@@ -155,6 +155,7 @@ def create_app(
 
     @app.exception_handler(ServiceError)
     async def service_error_handler(request: Request, error: ServiceError):
+        print(f"[DEBUG ServiceError] status={error.status_code} code={error.code} msg={error.message}", flush=True)
         request_id = getattr(request.state, "request_id", _request_id(request))
         metrics.observe_request(request.url.path, error.status_code, error.code)
         response = _problem(error, request_id)
@@ -165,6 +166,7 @@ def create_app(
 
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(request: Request, _error: RequestValidationError):
+        print(f"[DEBUG RequestValidationError] {_error.errors()}", flush=True)
         error = ServiceError("INVALID_MULTIPART", "Request fields are invalid or missing", 400)
         request_id = getattr(request.state, "request_id", _request_id(request))
         metrics.observe_request(request.url.path, error.status_code, error.code)
