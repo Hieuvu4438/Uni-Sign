@@ -3,7 +3,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: cosign-ai-text2sign_unisign:latest
+    image: cosign-ai-sign2text_unisign:latest
     restart: unless-stopped
     # Model loading temporarily holds CPU and GPU copies of the 587M-parameter
     # checkpoint. Six GiB is too small for reliable production startup.
