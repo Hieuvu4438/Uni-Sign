@@ -233,21 +233,31 @@ def create_app(
     async def predict(
         request: Request,
         video: UploadFile = File(...),
-        top_k: int | None = Form(None),
+        top_k: str | int | None = Form(None),
         client_capture_id: str | None = Form(None),
-        client_duration_ms: int | None = Form(None),
+        client_duration_ms: str | int | None = Form(None),
     ):
         del client_duration_ms  # Server-decoded duration is authoritative.
         _require_service_auth(request, settings)
         if client_capture_id is not None:
-            capture_id = client_capture_id.strip()
+            capture_id = str(client_capture_id).strip()
             if not capture_id or capture_id.lower() == "string":
                 client_capture_id = None
             elif len(capture_id) > 128 or not all(char.isalnum() or char in "-_." for char in capture_id):
                 raise ServiceError("INVALID_MULTIPART", "client_capture_id is invalid", 400)
             else:
                 client_capture_id = capture_id
-        requested_top_k = settings.top_k_default if top_k is None else top_k
+
+        parsed_top_k: int | None = None
+        if top_k is not None:
+            top_k_str = str(top_k).strip()
+            if top_k_str != "":
+                try:
+                    parsed_top_k = int(top_k_str)
+                except ValueError:
+                    raise ServiceError("INVALID_TOP_K", "top_k must be in 1..5", 400)
+
+        requested_top_k = settings.top_k_default if parsed_top_k is None else parsed_top_k
         if not 1 <= requested_top_k <= 5:
             raise ServiceError("INVALID_TOP_K", "top_k must be in 1..5", 400)
         active_service = request.app.state.service
