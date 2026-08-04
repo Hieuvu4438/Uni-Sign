@@ -33,5 +33,4 @@ services:
       - model-internal
 
 networks:
-  model-internal:
-    internal: true
+  model-internal: {}
