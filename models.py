@@ -136,8 +136,9 @@ class Uni_Sign(nn.Module):
                     nn.init.constant_(layer.weight, 0)
                     nn.init.constant_(layer.bias, 0)
 
-        self.mt5_model = MT5ForConditionalGeneration.from_pretrained(mt5_path)
-        self.mt5_tokenizer = T5Tokenizer.from_pretrained(mt5_path, legacy=False)
+        self.mt5_path = getattr(self.args, 'mt5_path', '') or mt5_path
+        self.mt5_model = MT5ForConditionalGeneration.from_pretrained(self.mt5_path)
+        self.mt5_tokenizer = T5Tokenizer.from_pretrained(self.mt5_path, legacy=False)
     
         
     def _init_weights(self, m):
@@ -203,7 +204,13 @@ class Uni_Sign(nn.Module):
         assert start == rgb_feat.shape[0]
         return gcn_feat
 
-    def forward(self, src_input, tgt_input):
+    def encode(self, src_input):
+        """Encode pose input into mT5-compatible embeddings for inference.
+
+        This performs the pose branch and prompt construction only.  Keeping it
+        separate from ``forward`` lets the inference service avoid a needless
+        dummy-label loss pass before closed-vocabulary scoring.
+        """
         # RGB branch forward
         if self.args.rgb_support:
             rgb_support_dict = {}
@@ -267,7 +274,7 @@ class Uni_Sign(nn.Module):
         inputs_embeds = self.pose_proj(inputs_embeds)
 
         prefix_token = self.mt5_tokenizer(
-                                [f"Translate sign language video to {self.lang}: "] * len(tgt_input["gt_sentence"]),
+                                [f"Translate sign language video to {self.lang}: "] * inputs_embeds.shape[0],
                                 padding="longest",
                                 truncation=True,
                                 return_tensors="pt",
@@ -279,6 +286,16 @@ class Uni_Sign(nn.Module):
         attention_mask = torch.cat([prefix_token['attention_mask'],
                                     src_input['attention_mask']], dim=1)
 
+        return {
+            'inputs_embeds': inputs_embeds,
+            'attention_mask': attention_mask,
+        }
+
+    def forward(self, src_input, tgt_input):
+        """Run the training-compatible encoder and teacher-forced loss path."""
+        stack_out = self.encode(src_input)
+        inputs_embeds = stack_out['inputs_embeds']
+        attention_mask = stack_out['attention_mask']
         tgt_input_tokenizer = self.mt5_tokenizer(tgt_input['gt_sentence'], 
                                                 return_tensors="pt", 
                                                 padding=True,
@@ -298,15 +315,7 @@ class Uni_Sign(nn.Module):
         out_logits = out['logits']
         logits = out_logits.reshape(-1,out_logits.shape[-1])
         loss_fct = torch.nn.CrossEntropyLoss(label_smoothing=self.args.label_smoothing, ignore_index=-100)
-        loss = loss_fct(logits, label.to(out_logits.device, non_blocking=True))
-
-        stack_out = {
-            # use for inference
-            'inputs_embeds':inputs_embeds,
-            'attention_mask':attention_mask,
-            'loss':loss,
-        }
-
+        stack_out['loss'] = loss_fct(logits, label.to(out_logits.device, non_blocking=True))
         return stack_out
     
     @torch.no_grad()
@@ -323,7 +332,7 @@ class Uni_Sign(nn.Module):
         return out
 
     @torch.no_grad()
-    def score_candidate_labels(self, pre_compute_item, candidate_labels):
+    def score_candidate_labels(self, pre_compute_item, candidate_labels, candidate_token_ids=None):
         """Return length-normalized log-likelihoods for closed-set ISLR.
 
         ``candidate_labels`` must already contain the canonical training label
@@ -338,13 +347,19 @@ class Uni_Sign(nn.Module):
         batch_size = inputs_embeds.shape[0]
         num_labels = len(candidate_labels)
 
-        target = self.mt5_tokenizer(
-            candidate_labels,
-            return_tensors='pt',
-            padding=True,
-            truncation=True,
-            max_length=50,
-        ).input_ids.to(inputs_embeds.device)
+        if candidate_token_ids is None:
+            target = self.mt5_tokenizer(
+                candidate_labels,
+                return_tensors='pt',
+                padding=True,
+                truncation=True,
+                max_length=50,
+            ).input_ids
+        else:
+            if candidate_token_ids.shape[0] != num_labels:
+                raise ValueError("candidate_token_ids row count must match candidate_labels")
+            target = candidate_token_ids
+        target = target.to(inputs_embeds.device).clone()
         target[target == self.mt5_tokenizer.pad_token_id] = -100
 
         repeated_embeds = inputs_embeds.repeat_interleave(num_labels, dim=0)

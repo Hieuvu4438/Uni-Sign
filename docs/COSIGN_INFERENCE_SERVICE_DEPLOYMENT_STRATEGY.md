@@ -1,5 +1,7 @@
 # CoSign Vietnamese ISLR Inference Service: API and Docker Deployment Strategy
 
+> Implementation status: the clip-based API, inference core, model-bundle validation, tests, and Docker/Compose files described by this plan are implemented. See [INFERENCE_SERVICE.md](INFERENCE_SERVICE.md) for the executable deployment and backend integration guide.
+
 ## 1. Purpose, scope, and recommended first release
 
 This document defines the production integration plan for the fine-tuned **Uni-Sign CoSign 30-class Vietnamese isolated-sign recognition (ISLR)** model.  It covers the service boundary, API contract, webcam capture flow, inference pipeline, Docker deployment, operations, and the implementation order.

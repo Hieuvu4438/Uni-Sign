@@ -1,0 +1,36 @@
+services:
+  unisign-inference:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: unisign-inference:local
+    restart: unless-stopped
+    gpus: all
+    environment:
+      MODEL_BUNDLE_DIR: /models/cosign-vi-islr/2026-08-04-r1
+      DEVICE: cuda
+      MODEL_DTYPE: fp32
+      POSE_BACKEND: onnxruntime
+      POSE_MODE: performance
+      MAX_UPLOAD_BYTES: "20971520"
+      MAX_DURATION_SECONDS: "8"
+      MAX_DECODED_FRAMES: "192"
+      MAX_PIXELS: "2073600"
+      MAX_QUEUE_DEPTH: "1"
+      TOP_K_DEFAULT: "5"
+      SERVICE_API_KEY: ${SERVICE_API_KEY:?Set SERVICE_API_KEY in the deployment environment}
+    volumes:
+      - ${MODEL_RELEASES_DIR:?Set MODEL_RELEASES_DIR to the parent model directory}:/models:ro
+    tmpfs:
+      - /tmp/unisign:rw,noexec,nosuid,size=256m,mode=1777
+    ports:
+      - "127.0.0.1:8080:8080"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - model-internal
+
+networks:
+  model-internal:
+    internal: true

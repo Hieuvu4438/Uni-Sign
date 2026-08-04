@@ -11,6 +11,7 @@ out/*
 core*
 *.ipynb
 *.bin
+docker/.env
 wandb
 backup
 *.pth

@@ -63,6 +63,10 @@ Please follow the instructions provided in [DATASET.md](./docs/DATASET.md) for d
 ## 💻 Model Checkpoints
 The Uni-Sign checkpoints are available for download [Here](https://huggingface.co/ZechengLi19/Uni-Sign/tree/main).
 
+## 🚀 CoSign inference service
+
+The CoSign 30-label Vietnamese isolated-sign API and Docker deployment guide is available in [docs/INFERENCE_SERVICE.md](./docs/INFERENCE_SERVICE.md). It documents the private backend integration, immutable model-release bundle, and GPU container requirements.
+
 ## 🔨 Training & Evaluation
 All scripts must be executed within the Uni-Sign directory. 
 
