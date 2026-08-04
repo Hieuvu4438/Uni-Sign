@@ -5,6 +5,7 @@ services:
       dockerfile: docker/Dockerfile
     image: unisign-inference:local
     restart: unless-stopped
+    mem_limit: 6g
     gpus: all
     environment:
       MODEL_BUNDLE_DIR: /models/cosign-vi-islr/2026-08-04-r1
