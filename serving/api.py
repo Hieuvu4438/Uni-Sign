@@ -173,6 +173,29 @@ def create_app(
         return response
 
     @app.middleware("http")
+    async def fix_multipart_boundary_middleware(request: Request, call_next):
+        content_type = request.headers.get("content-type", "")
+        if content_type and "multipart/form-data" in content_type.lower() and "boundary=" not in content_type.lower():
+            body = await request.body()
+            if body.startswith(b"--"):
+                first_line = body.split(b"\r\n", 1)[0]
+                boundary = first_line[2:].decode("latin-1", errors="ignore").strip()
+                if boundary:
+                    new_headers = []
+                    for k, v in request.scope["headers"]:
+                        if k.lower() == b"content-type":
+                            new_headers.append((b"content-type", f"multipart/form-data; boundary={boundary}".encode("latin-1")))
+                        else:
+                            new_headers.append((k, v))
+                    request.scope["headers"] = new_headers
+
+                    async def receive():
+                        return {"type": "http.request", "body": body}
+
+                    request._receive = receive
+        return await call_next(request)
+
+    @app.middleware("http")
     async def request_id_middleware(request: Request, call_next):
         request.state.request_id = _request_id(request)
         response = await call_next(request)
@@ -218,13 +241,12 @@ def create_app(
         _require_service_auth(request, settings)
         if client_capture_id is not None:
             capture_id = client_capture_id.strip()
-            if (
-                not capture_id
-                or len(capture_id) > 128
-                or not all(char.isalnum() or char in "-_." for char in capture_id)
-            ):
+            if not capture_id or capture_id.lower() == "string":
+                client_capture_id = None
+            elif len(capture_id) > 128 or not all(char.isalnum() or char in "-_." for char in capture_id):
                 raise ServiceError("INVALID_MULTIPART", "client_capture_id is invalid", 400)
-            client_capture_id = capture_id
+            else:
+                client_capture_id = capture_id
         requested_top_k = settings.top_k_default if top_k is None else top_k
         if not 1 <= requested_top_k <= 5:
             raise ServiceError("INVALID_TOP_K", "top_k must be in 1..5", 400)
