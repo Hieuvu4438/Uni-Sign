@@ -4,7 +4,10 @@ __pycache__/
 
 # Downloaded checkpoints and training outputs
 pretrained_weight/
-out/
+out/*
+!out/cosign_pose_islr_seed42/
+!out/**/*.txt
+!out/**/*.log
 core*
 *.ipynb
 *.bin

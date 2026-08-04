@@ -218,7 +218,7 @@ def write_outputs(output_root, records, labels):
                 'recording_id': record['recording_id'],
             }
             for record in records
-            if record['is_canonical'] and record['split'] == split
+            if record['is_canonical'] and record['split'] == split and (output_root / record['pose_path']).is_file()
         }
         with gzip.open(splits_dir / f'labels.{split}', 'wb') as f:
             pickle.dump(split_records, f)
