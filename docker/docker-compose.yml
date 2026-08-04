@@ -3,7 +3,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: unisign-inference:local
+    image: cosign-ai-text2sign_unisign:latest
     restart: unless-stopped
     mem_limit: 6g
     gpus: all

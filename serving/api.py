@@ -144,8 +144,8 @@ def create_app(
         title="Uni-Sign CoSign Vietnamese ISLR Inference API",
         version="1.0.0",
         lifespan=lifespan,
-        docs_url=None,
-        redoc_url=None,
+        docs_url="/docs",
+        redoc_url="/redoc",
     )
     app.state.settings = settings
     app.state.metrics = metrics
