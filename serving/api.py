@@ -11,10 +11,13 @@ import threading
 from typing import Any
 from uuid import uuid4
 
-from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
+from fastapi.security import HTTPBearer
+
+security_bearer = HTTPBearer(auto_error=False)
 
 from serving.errors import ModelUnavailableError, QueueFullError, ServiceError
 from serving.service import InferenceService
@@ -187,7 +190,7 @@ def create_app(
             raise ModelUnavailableError("Model bundle or runtime is not ready")
         return {"status": "ready", "model": active_service.model_metadata()}
 
-    @app.get("/v1/model")
+    @app.get("/v1/model", dependencies=[Depends(security_bearer)])
     async def model_metadata(request: Request):
         _require_service_auth(request, settings)
         active_service = request.app.state.service
@@ -195,7 +198,7 @@ def create_app(
             raise ModelUnavailableError()
         return active_service.model_metadata()
 
-    @app.get("/v1/labels")
+    @app.get("/v1/labels", dependencies=[Depends(security_bearer)])
     async def labels(request: Request):
         _require_service_auth(request, settings)
         active_service = request.app.state.service
@@ -203,7 +206,7 @@ def create_app(
             raise ModelUnavailableError()
         return {"labels": active_service.labels(), "model": active_service.model_metadata()}
 
-    @app.post("/v1/predictions")
+    @app.post("/v1/predictions", dependencies=[Depends(security_bearer)])
     async def predict(
         request: Request,
         video: UploadFile = File(...),
@@ -255,7 +258,7 @@ def create_app(
                 in_flight -= 1
                 metrics.set_queue_depth(in_flight)
 
-    @app.get("/metrics")
+    @app.get("/metrics", dependencies=[Depends(security_bearer)])
     async def metrics_endpoint(request: Request):
         _require_service_auth(request, settings)
         body, content_type = metrics.render()
