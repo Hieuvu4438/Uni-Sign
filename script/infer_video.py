@@ -15,15 +15,19 @@ os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
-# Auto-add pip nvidia CUDA/cuDNN paths to LD_LIBRARY_PATH for ONNXRuntime GPU
+# Auto-preload pip nvidia CUDA/cuDNN libraries for ONNXRuntime GPU
+import ctypes
 import site
 for _sp in site.getsitepackages():
     _nv_dir = Path(_sp) / "nvidia"
     if _nv_dir.exists():
-        for _ld in _nv_dir.glob("*/lib"):
-            _ld_str = str(_ld)
-            if _ld_str not in os.environ.get("LD_LIBRARY_PATH", ""):
-                os.environ["LD_LIBRARY_PATH"] = f"{_ld_str}:{os.environ.get('LD_LIBRARY_PATH', '')}"
+        for _so in Path(_nv_dir).glob("*/lib/*.so*"):
+            if "so" in _so.suffixes:
+                try:
+                    ctypes.CDLL(str(_so), mode=ctypes.RTLD_GLOBAL)
+                except Exception:
+                    pass
+
 
 
 import cv2
